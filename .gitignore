@@ -1,0 +1,56 @@
+# ----------------------------------------------------------------------- JUCE
+# Local JUCE source used for offline builds.
+JUCE*/
+
+# --------------------------------------------------------------- build trees
+build/
+build-*/
+.vs/
+CMakeSettings.json
+CMakeUserPresets.json
+
+# ------------------------------------------------- material kept out of git
+# Local material that is not part of this project and must never be
+# committed.
+资源/
+
+# ------------------------------------------------------ measurement workspace
+# Scratch renders, captures and the analysis scripts used while tuning stay
+# local; only their conclusions live in docs/. The shipped dev tooling lives in
+# tools/analysis/ and is tracked.
+/analysis/
+
+# --------------------------------------------------------- internal documents
+# The long-form engineering report, the audition renders and the design
+# handoff are kept locally; the public docs are docs/shoreveil-ui.png and
+# docs/figures/.
+docs/REPORT.md
+docs/audition/
+docs/design/
+docs/design-handoff.md
+
+# ----------------------------------------------------------------- artefacts
+*.vst3
+*.component
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.wav
+
+# ---------------------------------------- local portable toolchain (not shipped)
+# Inno Setup unpacked with innoextract; see the packaging section of BUILDING.md.
+tools/inno/
+dist/
+
+# ------------------------------------------------------------------ OS noise
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --------------------------------------------------------------- python noise
+__pycache__/
+*.pyc

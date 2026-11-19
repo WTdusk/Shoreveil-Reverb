@@ -1,0 +1,147 @@
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+namespace rivage
+{
+
+//==============================================================================
+RivageAudioProcessor::RivageAudioProcessor()
+    : AudioProcessor (BusesProperties()
+                          .withInput ("Input", juce::AudioChannelSet::stereo(), true)
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts (*this, nullptr, "RIVAGE", createParameterLayout()) // State ID used by existing sessions
+{
+    cacheParameterPointers();
+    apvts.addParameterListener (paramID::algorithm, this);
+}
+
+RivageAudioProcessor::~RivageAudioProcessor()
+{
+    apvts.removeParameterListener (paramID::algorithm, this);
+}
+
+//==============================================================================
+void RivageAudioProcessor::cacheParameterPointers()
+{
+    pAlgorithm = apvts.getRawParameterValue (paramID::algorithm);
+    pMix       = apvts.getRawParameterValue (paramID::mix);
+    pDecay     = apvts.getRawParameterValue (paramID::decay);
+    pPredelay  = apvts.getRawParameterValue (paramID::predelay);
+    pTone      = apvts.getRawParameterValue (paramID::tone);
+    pMod       = apvts.getRawParameterValue (paramID::mod);
+    pSize      = apvts.getRawParameterValue (paramID::size);
+    pWidth     = apvts.getRawParameterValue (paramID::width);
+    pFreeze    = apvts.getRawParameterValue (paramID::freeze);
+    pSpringModel = apvts.getRawParameterValue (paramID::springModel);
+    pDrive     = apvts.getRawParameterValue (paramID::drive);
+}
+
+juce::String RivageAudioProcessor::getAlgorithmName (int index) const
+{
+    return algorithmName (index);
+}
+
+//==============================================================================
+void RivageAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
+{
+    if (parameterID == paramID::algorithm)
+    {
+        const int index = juce::jlimit (0, kNumAlgorithms - 1, juce::roundToInt (newValue));
+
+        if (onAlgorithmChanged != nullptr)
+            onAlgorithmChanged (index);
+    }
+}
+
+//==============================================================================
+void RivageAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    engine.prepare (sampleRate, samplesPerBlock);
+    pushTargetsToEngine();
+    engine.snapParameters();
+}
+
+void RivageAudioProcessor::releaseResources()
+{
+}
+
+void RivageAudioProcessor::reset()
+{
+    engine.reset();
+}
+
+bool RivageAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+    const auto input = layouts.getMainInputChannelSet();
+    const auto output = layouts.getMainOutputChannelSet();
+    return (input == juce::AudioChannelSet::mono()
+            && (output == juce::AudioChannelSet::mono() || output == juce::AudioChannelSet::stereo()))
+        || (input == juce::AudioChannelSet::stereo() && output == juce::AudioChannelSet::stereo());
+}
+
+void RivageAudioProcessor::pushTargetsToEngine()
+{
+    ReverbParameters params;
+
+    params.algorithm = juce::jlimit (0, kNumAlgorithms - 1, juce::roundToInt (pAlgorithm->load()));
+    params.mix       = pMix->load();
+    params.decay     = pDecay->load();
+    params.predelay  = pPredelay->load();
+    params.tone      = pTone->load();
+    params.mod       = pMod->load();
+    params.size      = pSize->load();
+    params.width     = pWidth->load();
+    params.freeze    = pFreeze->load() > 0.5f ? 1.0f : 0.0f;
+    params.springModel = juce::jlimit (0, 1, juce::roundToInt (pSpringModel->load()));
+    params.drive     = pDrive->load();
+
+    engine.setParameters (params);
+}
+
+//==============================================================================
+void RivageAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    juce::ScopedNoDenormals noDenormals;
+    juce::ignoreUnused (midi);
+
+    if (getTotalNumInputChannels() == 1 && buffer.getNumChannels() >= 2)
+        buffer.copyFrom (1, 0, buffer, 0, 0, buffer.getNumSamples());
+
+    pushTargetsToEngine();
+    engine.process (buffer);
+}
+
+//==============================================================================
+juce::AudioProcessorEditor* RivageAudioProcessor::createEditor()
+{
+    return new RivageAudioProcessorEditor (*this);
+}
+
+//==============================================================================
+void RivageAudioProcessor::getStateInformation (juce::MemoryBlock& destination)
+{
+    if (auto state = apvts.copyState(); state.isValid())
+        if (auto xml = state.createXml())
+            copyXmlToBinary (*xml, destination);
+}
+
+void RivageAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    // The state contains ten parameters. Leave room for future additions
+    // while bounding the input passed to JUCE's XML parser.
+    constexpr int maxStateSize = 64 * 1024;
+    if (data == nullptr || sizeInBytes <= 8 || sizeInBytes > maxStateSize)
+        return;
+
+    if (auto xml = getXmlFromBinary (data, sizeInBytes))
+        if (xml->hasTagName (apvts.state.getType()))
+            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+}
+
+} // namespace rivage
+
+//==============================================================================
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new rivage::RivageAudioProcessor();
+}

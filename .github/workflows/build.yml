@@ -1,0 +1,86 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per branch, so eleven pushes cannot queue eleven ten-minute Windows
+# jobs. Only pull-request runs are cancelled when superseded: a cancelled run on
+# the default branch makes the README badge read "failing" until the next run
+# finishes, and pushes to main are rare enough to let them finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    name: Windows x64 VST3
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Configure
+        run: >
+          cmake -B build -A x64
+          -DRIVAGE_FETCH_JUCE=ON
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build plug-in
+        run: cmake --build build --config Release --target ShoreveilReverb_VST3
+
+      - name: Build tools
+        run: >
+          cmake --build build --config Release
+          --target Analyzer ShoreveilPreview
+
+      - name: Smoke test
+        shell: bash
+        run: bash scripts/smoke.sh
+
+      - name: DSP regression checks
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" dspcheck'
+
+      - name: VST3 channel layout checks
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" layouttest "build/Source/ShoreveilReverb_artefacts/Release/VST3/Shoreveil Reverb.vst3"'
+
+      - name: VST3 state and host reset checks
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" statecheck "build/Source/ShoreveilReverb_artefacts/Release/VST3/Shoreveil Reverb.vst3"'
+
+      - name: Freeze behavior checks
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" freezecheck'
+
+      - name: Hosted offline VST3 Freeze check
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" offlinefreeze "build/Source/ShoreveilReverb_artefacts/Release/VST3/Shoreveil Reverb.vst3"'
+
+      - name: Cloud parameter range checks
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" cloudcheck'
+
+      - name: Algorithm switch checks
+        shell: pwsh
+        run: '& "build/tools/analyzer/Analyzer_artefacts/Release/Analyzer.exe" switchtest'
+
+      - name: Package plug-in and corresponding source
+        run: python scripts/make_zip.py
+
+      - name: Upload plug-in and corresponding source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Shoreveil-Reverb-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
